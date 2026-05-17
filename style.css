@@ -103,3 +103,18 @@ button:hover {
     color: var(--accent-red); 
     border: 1px solid var(--accent-red); 
 }
+
+.delete-btn {
+    background-color: transparent;
+    color: var(--accent-red);
+    border: 1px solid var(--accent-red);
+    padding: 6px 10px;
+    width: auto;
+    margin-left: 15px;
+    font-size: 12px;
+}
+
+.delete-btn:hover {
+    background-color: var(--accent-red);
+    color: white;
+}
