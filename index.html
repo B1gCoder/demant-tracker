@@ -301,6 +301,31 @@
             fetchDailyLogs();
         }
     });
+// BRAKUJĄCA FUNKCJA - Dodawanie zadania do bazy
+    document.getElementById('new-task-form').addEventListener('submit', async (e) => {
+        e.preventDefault(); // To blokuje odświeżanie strony!
+        
+        const nameVal = document.getElementById('task-name').value;
+        const typeVal = document.getElementById('task-type').value;
+        const normVal = document.getElementById('task-norm').value;
+
+        const { error } = await db.from('processes').insert([
+            { 
+                name: nameVal, 
+                type: typeVal, 
+                norm_per_hour: parseInt(normVal) 
+            }
+        ]);
+
+        if (error) {
+            alert('Błąd podczas dodawania zadania do bazy.');
+            console.error(error);
+        } else {
+            document.getElementById('task-name').value = '';
+            document.getElementById('task-norm').value = '';
+            fetchProcesses(); // Odświeża listy po dodaniu
+        }
+    });
 
     fetchProcesses();
     fetchDailyLogs();
