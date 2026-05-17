@@ -19,9 +19,9 @@
                 <input type="date" id="date-input" required>
             </div>
             <div class="form-group">
-                <label for="process-select">Proces / Obróbka</label>
+                <label for="process-select">Proces / Przeróbka</label>
                 <select id="process-select" required>
-                    <option value="">Wczytywanie procesów...</option>
+                    <option value="">Wczytywanie zadań...</option>
                 </select>
             </div>
             <div class="form-group">
@@ -38,31 +38,66 @@
 
     <div id="logs-wrapper">
         </div>
+
+    <h3 style="margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">Zarządzanie Zadaniami</h3>
+    <div class="card" style="border-color: var(--accent-orange);">
+        <form id="new-task-form">
+            <div class="form-group">
+                <label for="task-name">Nazwa zadania</label>
+                <input type="text" id="task-name" placeholder="np. Montaż ucha" required>
+            </div>
+            <div class="form-group">
+                <label for="task-type">Typ zadania</label>
+                <select id="task-type" required>
+                    <option value="Proces">Proces</option>
+                    <option value="Przeróbka">Przeróbka</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="task-norm">Norma na godzinę (szt.)</label>
+                <input type="number" id="task-norm" placeholder="np. 500" required>
+            </div>
+            <button type="submit" style="background-color: var(--accent-orange); color: #000;">Dodaj nowe zadanie do bazy</button>
+        </form>
+    </div>
 </div>
 
 <script>
-    // Twoje zaktualizowane klucze Supabase
     const SUPABASE_URL = "https://ekckurobugcufslazrqa.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrY2t1cm9idWdjdWZzbGF6cnFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzYxNDksImV4cCI6MjA5NDYxMjE0OX0.hyxbmSl5snpnHf0QDCdsKhi8ARfOgFBHpbYsENh93-4";
     const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // Domyślne ustawienie dzisiejszej daty w formularzu
     document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
 
-    // Pobieranie procesów (słownika norm) do dropdowna
+    // Zmodyfikowana funkcja pobierania zadań (dzieli na Procesy i Przeróbki)
     async function fetchProcesses() {
-        const { data, error } = await db.from('processes').select('*');
+        const { data, error } = await db.from('processes').select('*').order('name');
         if (error) return console.error(error);
         
-        const select = document.getElementById('process-select');
-        select.innerHTML = data.map(p => `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`).join('');
+        const procesy = data.filter(p => p.type === 'Proces' || !p.type);
+        const przerobki = data.filter(p => p.type === 'Przeróbka');
+
+        let html = '<option value="">Wybierz zadanie...</option>';
+        
+        if (procesy.length > 0) {
+            html += '<optgroup label="Procesy">';
+            procesy.forEach(p => html += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
+            html += '</optgroup>';
+        }
+
+        if (przerobki.length > 0) {
+            html += '<optgroup label="Przeróbki">';
+            przerobki.forEach(p => html += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
+            html += '</optgroup>';
+        }
+
+        document.getElementById('process-select').innerHTML = html;
     }
 
-    // Pobieranie i wyświetlanie zalogowanych wyników z podziałem na dni
     async function fetchDailyLogs() {
         const { data, error } = await db
             .from('daily_logs')
-            .select(`id, log_date, hours_spent, pieces_made, processes(name, norm_per_hour)`)
+            .select(`id, log_date, hours_spent, pieces_made, processes(name, norm_per_hour, type)`)
             .order('log_date', { ascending: false })
             .order('id', { ascending: false });
 
@@ -74,7 +109,6 @@
             return;
         }
 
-        // Grupowanie danych po dacie
         const groupedLogs = data.reduce((acc, log) => {
             const date = log.log_date;
             if (!acc[date]) acc[date] = [];
@@ -82,7 +116,6 @@
             return acc;
         }, {});
 
-        // Budowanie interfejsu
         let html = '';
         for (const [date, logs] of Object.entries(groupedLogs)) {
             const dateObj = new Date(date);
@@ -95,6 +128,7 @@
                 const norm = log.processes.norm_per_hour;
                 const expected = log.hours_spent * norm;
                 const efficiency = Math.round((log.pieces_made / expected) * 100);
+                const taskType = log.processes.type || 'Proces';
 
                 let statusClass = 'good';
                 if (efficiency < 100) statusClass = 'warn';
@@ -103,7 +137,7 @@
                 html += `
                     <div class="log-item">
                         <div style="flex-grow: 1;">
-                            <strong style="color: #f0f6fc;">${log.processes.name}</strong><br>
+                            <strong style="color: #f0f6fc;">${log.processes.name} <span style="font-size: 10px; color: var(--accent-orange); text-transform: uppercase;">[${taskType}]</span></strong><br>
                             <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt.</small>
                         </div>
                         <div class="efficiency-badge ${statusClass}">${efficiency}%</div>
@@ -117,7 +151,6 @@
         wrapper.innerHTML = html;
     }
 
-    // Funkcja usuwania wpisów
     window.deleteLog = async function(id) {
         if(confirm("Czy na pewno chcesz usunąć ten wpis?")) {
             const { error } = await db.from('daily_logs').delete().eq('id', id);
@@ -130,7 +163,6 @@
         }
     };
 
-    // Obsługa wysyłania formularza
     document.getElementById('tracker-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -158,7 +190,35 @@
         }
     });
 
-    // Inicjalizacja aplikacji
+    // OBSŁUGA NOWEGO FORMULARZA: Dodawanie zadania do bazy
+    document.getElementById('new-task-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const nameVal = document.getElementById('task-name').value;
+        const typeVal = document.getElementById('task-type').value;
+        const normVal = document.getElementById('task-norm').value;
+
+        const { error } = await db.from('processes').insert([
+            { 
+                name: nameVal, 
+                type: typeVal, 
+                norm_per_hour: parseInt(normVal) 
+            }
+        ]);
+
+        if (error) {
+            alert('Błąd podczas dodawania zadania. Upewnij się, że masz uprawnienia (RLS).');
+            console.error(error);
+        } else {
+            alert('Dodano nowe zadanie do słownika!');
+            // Czyszczenie formularza zadań
+            document.getElementById('task-name').value = '';
+            document.getElementById('task-norm').value = '';
+            // Odświeżenie listy rozwijanej w głównym formularzu
+            fetchProcesses();
+        }
+    });
+
     fetchProcesses();
     fetchDailyLogs();
 </script>
