@@ -12,6 +12,27 @@
 <div class="container">
     <h2>Production Tracker</h2>
 
+    <div class="card" style="border-color: #58a6ff; background-color: rgba(88, 166, 255, 0.05);">
+        <h3 style="margin-top: 0; color: #58a6ff;">Miesięczne Cele (Max 2)</h3>
+        
+        <div id="goals-list" style="margin-bottom: 15px;">
+            </div>
+
+        <div id="add-goal-container">
+            <form id="add-goal-form" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                <div style="flex-grow: 1; min-width: 150px;">
+                    <label style="color: #c9d1d9;">Wybierz zadanie</label>
+                    <select id="goal-process-select" required style="border-color: #58a6ff;"></select>
+                </div>
+                <div style="width: 100px;">
+                    <label style="color: #c9d1d9;">Cel (szt/h)</label>
+                    <input type="number" id="goal-norm-input" required style="border-color: #58a6ff;">
+                </div>
+                <button type="submit" style="width: auto; background-color: #58a6ff; color: #000;">Ustaw Cel</button>
+            </form>
+        </div>
+    </div>
+
     <div class="card">
         <form id="tracker-form">
             <div class="form-group">
@@ -39,8 +60,7 @@
     <div id="logs-wrapper">
         </div>
 
-    <h3 style="margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">Zarządzanie Zadaniami</h3>
-    
+    <h3 style="margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">Słownik Zadań</h3>
     <div class="card" style="border-color: var(--accent-orange); margin-bottom: 15px;">
         <form id="new-task-form">
             <div class="form-group">
@@ -55,14 +75,12 @@
                 </select>
             </div>
             <div class="form-group">
-                <label for="task-norm">Norma na godzinę (szt.)</label>
-                <input type="number" id="task-norm" placeholder="np. 500" required>
+                <label for="task-norm">Domyślna norma na godzinę</label>
+                <input type="number" id="task-norm" placeholder="np. 600" required>
             </div>
-            <button type="submit" style="background-color: var(--accent-orange); color: #000;">Dodaj nowe zadanie do bazy</button>
+            <button type="submit" style="background-color: var(--accent-orange); color: #000;">Dodaj zadanie do bazy</button>
         </form>
     </div>
-
-    <h4 style="color: #8b949e; margin-bottom: 10px;">Aktualna lista zadań w słowniku:</h4>
     <div class="card" id="tasks-manage-list" style="padding: 0; max-height: 250px; overflow-y: auto;">
         </div>
 </div>
@@ -74,74 +92,112 @@
 
     document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
 
-    // Pobieranie zadań i jednoczesne odświeżanie dropdowna oraz listy zarządzania
+    // Globalna tablica z zadaniami, żeby główny formularz miał do nich szybki dostęp
+    let allProcesses = [];
+
     async function fetchProcesses() {
         const { data, error } = await db.from('processes').select('*').order('name');
         if (error) return console.error(error);
         
-        // 1. Aktualizacja głównego dropdowna do zapisywania wyników
+        allProcesses = data;
         const procesy = data.filter(p => p.type === 'Proces' || !p.type);
         const przerobki = data.filter(p => p.type === 'Przeróbka');
 
+        // 1. Ładowanie głównego formularza wyników
         let selectHtml = '<option value="">Wybierz zadanie...</option>';
-        
         if (procesy.length > 0) {
             selectHtml += '<optgroup label="Procesy">';
-            procesy.forEach(p => selectHtml += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
+            procesy.forEach(p => {
+                const normText = p.goal_norm ? `CEL: ${p.goal_norm}/h` : `Norma: ${p.norm_per_hour}/h`;
+                selectHtml += `<option value="${p.id}">${p.name} (${normText})</option>`;
+            });
             selectHtml += '</optgroup>';
         }
-
         if (przerobki.length > 0) {
             selectHtml += '<optgroup label="Przeróbki">';
-            przerobki.forEach(p => selectHtml += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
+            przerobki.forEach(p => {
+                const normText = p.goal_norm ? `CEL: ${p.goal_norm}/h` : `Norma: ${p.norm_per_hour}/h`;
+                selectHtml += `<option value="${p.id}">${p.name} (${normText})</option>`;
+            });
             selectHtml += '</optgroup>';
         }
-
         document.getElementById('process-select').innerHTML = selectHtml;
 
-        // 2. Aktualizacja listy pod formularzem (słownika zadań z opcją usuwania)
+        // 2. Ładowanie słownika zarządzania
         const manageList = document.getElementById('tasks-manage-list');
-        if (data.length === 0) {
-            manageList.innerHTML = '<p style="color: #8b949e; padding: 15px; text-align: center;">Brak zdefiniowanych zadań.</p>';
-            return;
-        }
-
         manageList.innerHTML = data.map(p => `
             <div class="log-item" style="padding: 10px 15px;">
                 <div style="flex-grow: 1;">
                     <strong style="color: #f0f6fc;">${p.name}</strong> 
                     <span style="font-size: 10px; color: var(--accent-orange); text-transform: uppercase;">[${p.type || 'Proces'}]</span>
-                    <br><small style="color: #8b949e;">Norma: ${p.norm_per_hour}/h</small>
+                    <br><small style="color: #8b949e;">Norma bazowa: ${p.norm_per_hour}/h</small>
                 </div>
                 <button class="delete-btn" onclick="deleteProcess(${p.id}, '${p.name}')" style="padding: 4px 8px; font-size: 11px;">Usuń</button>
             </div>
         `).join('');
+
+        // 3. Ładowanie miesięcznych celów
+        const activeGoals = data.filter(p => p.goal_norm !== null);
+        const goalsList = document.getElementById('goals-list');
+        
+        if (activeGoals.length === 0) {
+            goalsList.innerHTML = '<small style="color: #8b949e;">Brak ustawionych celów na ten miesiąc.</small>';
+        } else {
+            goalsList.innerHTML = activeGoals.map(g => `
+                <div class="log-item" style="padding: 8px 10px; border: 1px solid #58a6ff; border-radius: 6px; margin-bottom: 5px; background-color: #0d1117;">
+                    <div>
+                        <strong style="color: #f0f6fc;">${g.name}</strong><br>
+                        <small>Nowy cel: <strong style="color: #58a6ff;">${g.goal_norm} szt/h</strong> <span style="color: #8b949e;">(zamiast ${g.norm_per_hour})</span></small>
+                    </div>
+                    <button class="delete-btn" onclick="removeGoal(${g.id})" style="color: #58a6ff; border-color: #58a6ff;">Usuń cel</button>
+                </div>
+            `).join('');
+        }
+
+        // Ukrywanie formularza dodawania celu, jeśli są już 2
+        document.getElementById('add-goal-container').style.display = activeGoals.length >= 2 ? 'none' : 'block';
+        
+        // Formularz wyboru zadania dla celu (tylko te, które nie mają celu)
+        const goalSelect = document.getElementById('goal-process-select');
+        goalSelect.innerHTML = '<option value="">Wybierz...</option>' + 
+            data.filter(p => p.goal_norm === null).map(p => `<option value="${p.id}">${p.name} (${p.type})</option>`).join('');
     }
 
-    // Funkcja usuwania samego zadania ze słownika (z obsługą klucza obcego)
+    // Dodawanie celu
+    document.getElementById('add-goal-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const processId = document.getElementById('goal-process-select').value;
+        const goalNorm = document.getElementById('goal-norm-input').value;
+
+        const { error } = await db.from('processes').update({ goal_norm: parseInt(goalNorm) }).eq('id', processId);
+        if(!error) {
+            document.getElementById('goal-norm-input').value = '';
+            fetchProcesses();
+        }
+    });
+
+    // Usuwanie celu (przywracanie do domyślnej normy)
+    window.removeGoal = async function(id) {
+        const { error } = await db.from('processes').update({ goal_norm: null }).eq('id', id);
+        if(!error) fetchProcesses();
+    };
+
     window.deleteProcess = async function(id, name) {
-        if (confirm(`Czy na pewno chcesz bezpowrotnie usunąć zadanie "${name}" ze słownika bazowego?`)) {
+        if (confirm(`Czy usunąć zadanie "${name}" ze słownika?`)) {
             const { error } = await db.from('processes').delete().eq('id', id);
-            
-            if (error) {
-                // Kod błędu 23503 w PostgreSQL oznacza naruszenie więzów integralności (klucz obcy jest używany)
-                if (error.code === "23503") {
-                    alert(`Nie możesz usunąć zadania "${name}", ponieważ masz już zapisane codzienne wyniki z nim powiązane. Najpierw usuń wpisy z historii zmian.`);
-                } else {
-                    alert("Błąd podczas usuwania zadania.");
-                    console.error(error);
-                }
+            if (error && error.code === "23503") {
+                alert(`Nie możesz usunąć zadania "${name}", ponieważ jest w historii wpisów.`);
             } else {
-                fetchProcesses(); // Odśwież widoki
+                fetchProcesses();
             }
         }
     };
 
-    // Pobieranie i wyświetlanie zalogowanych wyników dnia
     async function fetchDailyLogs() {
+        // Zwróć uwagę na pobieranie 'applied_norm'
         const { data, error } = await db
             .from('daily_logs')
-            .select(`id, log_date, hours_spent, pieces_made, processes(name, norm_per_hour, type)`)
+            .select(`id, log_date, hours_spent, pieces_made, applied_norm, processes(name, norm_per_hour, type)`)
             .order('log_date', { ascending: false })
             .order('id', { ascending: false });
 
@@ -169,12 +225,19 @@
             html += `<div class="card" style="padding: 0;">`;
             
             logs.forEach(log => {
-                // Zabezpieczenie na wypadek braku powiązanego procesu (fallback)
                 const processData = log.processes || { name: 'Usunięte zadanie', norm_per_hour: 1, type: 'Brak' };
-                const norm = processData.norm_per_hour;
-                const expected = log.hours_spent * norm;
+                
+                // Kluczowa logika: używamy zamrożonej normy (applied_norm), jeśli brakuje, bierzemy domyślną
+                const activeNorm = log.applied_norm ? log.applied_norm : processData.norm_per_hour;
+                const expected = log.hours_spent * activeNorm;
                 const efficiency = Math.round((log.pieces_made / expected) * 100);
                 const taskType = processData.type || 'Proces';
+
+                // Wizualna informacja, czy do wyliczenia posłużył cel, czy standardowa norma
+                const isGoal = log.applied_norm && log.applied_norm !== processData.norm_per_hour;
+                const normInfoHtml = isGoal 
+                    ? `<span style="color: #58a6ff;">Wymagane z Celu: ${activeNorm}/h</span>` 
+                    : `Norma: ${activeNorm}/h`;
 
                 let statusClass = 'good';
                 if (efficiency < 100) statusClass = 'warn';
@@ -184,7 +247,7 @@
                     <div class="log-item">
                         <div style="flex-grow: 1;">
                             <strong style="color: #f0f6fc;">${processData.name} <span style="font-size: 10px; color: var(--accent-orange); text-transform: uppercase;">[${taskType}]</span></strong><br>
-                            <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt.</small>
+                            <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt. | ${normInfoHtml}</small>
                         </div>
                         <div class="efficiency-badge ${statusClass}">${efficiency}%</div>
                         <button class="delete-btn" onclick="deleteLog(${log.id})">X</button>
@@ -197,20 +260,14 @@
         wrapper.innerHTML = html;
     }
 
-    // Usuwanie wpisu dziennego
     window.deleteLog = async function(id) {
         if(confirm("Czy na pewno chcesz usunąć ten wpis z historii zmian?")) {
             const { error } = await db.from('daily_logs').delete().eq('id', id);
-            if (error) {
-                alert("Błąd podczas usuwania wpisu.");
-                console.error(error);
-            } else {
-                fetchDailyLogs();
-            }
+            if (!error) fetchDailyLogs();
         }
     };
 
-    // Obsługa dodawania wyniku
+    // ZAPISYWANIE WYNIKU - Z uwzględnieniem aktywnego celu
     document.getElementById('tracker-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -219,12 +276,19 @@
         const hours = document.getElementById('hours-input').value;
         const pieces = document.getElementById('pieces-input').value;
 
+        // Znajdź wybrane zadanie w tablicy wszystkich zadań
+        const selectedProcess = allProcesses.find(p => p.id === parseInt(processId));
+        
+        // Zdefiniuj, jaka norma ma zostać zapamiętana dla tego wpisu
+        const normToApply = selectedProcess.goal_norm !== null ? selectedProcess.goal_norm : selectedProcess.norm_per_hour;
+
         const { error } = await db.from('daily_logs').insert([
             { 
                 log_date: dateVal, 
                 process_id: parseInt(processId), 
                 hours_spent: parseFloat(hours), 
-                pieces_made: parseInt(pieces) 
+                pieces_made: parseInt(pieces),
+                applied_norm: normToApply // Zapisujemy użytą normę!
             }
         ]);
 
@@ -238,33 +302,6 @@
         }
     });
 
-    // Obsługa dodawania nowego typu zadania
-    document.getElementById('new-task-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const nameVal = document.getElementById('task-name').value;
-        const typeVal = document.getElementById('task-type').value;
-        const normVal = document.getElementById('task-norm').value;
-
-        const { error } = await db.from('processes').insert([
-            { 
-                name: nameVal, 
-                type: typeVal, 
-                norm_per_hour: parseInt(normVal) 
-            }
-        ]);
-
-        if (error) {
-            alert('Błąd podczas dodawania zadania do bazy.');
-            console.error(error);
-        } else {
-            document.getElementById('task-name').value = '';
-            document.getElementById('task-norm').value = '';
-            fetchProcesses();
-        }
-    });
-
-    // Start aplikacji
     fetchProcesses();
     fetchDailyLogs();
 </script>
