@@ -15,6 +15,10 @@
     <div class="card">
         <form id="tracker-form">
             <div class="form-group">
+                <label for="date-input">Data zmiany</label>
+                <input type="date" id="date-input" required>
+            </div>
+            <div class="form-group">
                 <label for="process-select">Proces / Obróbka</label>
                 <select id="process-select" required>
                     <option value="">Wczytywanie procesów...</option>
@@ -22,7 +26,7 @@
             </div>
             <div class="form-group">
                 <label for="hours-input">Czas pracy (godziny)</label>
-                <input type="number" id="hours-input" step="0.1" placeholder="np. 1" required>
+                <input type="number" id="hours-input" step="0.01" placeholder="np. 0.25 lub 1.5" required>
             </div>
             <div class="form-group">
                 <label for="pieces-input">Wykonane sztuki</label>
@@ -32,77 +36,116 @@
         </form>
     </div>
 
-    <h3>Dzisiejsze wpisy</h3>
-    <div class="card" id="logs-container" style="padding: 0;">
+    <div id="logs-wrapper">
         </div>
 </div>
 
 <script>
-    // Konfiguracja połączenia z Supabase
+    // Twoje zaktualizowane klucze Supabase
     const SUPABASE_URL = "https://ekckurobugcufslazrqa.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrY2t1cm9idWdjdWZzbGF6cnFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzYxNDksImV4cCI6MjA5NDYxMjE0OX0.hyxbmSl5snpnHf0QDCdsKhi8ARfOgFBHpbYsENh93-4";
     const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    let localProcesses = [];
+    // Domyślne ustawienie dzisiejszej daty w formularzu
+    document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
 
-    // 1. Pobieranie procesów (słownika norm) do dropdowna
+    // Pobieranie procesów (słownika norm) do dropdowna
     async function fetchProcesses() {
         const { data, error } = await db.from('processes').select('*');
         if (error) return console.error(error);
         
-        localProcesses = data;
         const select = document.getElementById('process-select');
         select.innerHTML = data.map(p => `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`).join('');
     }
 
-    // 2. Pobieranie i wyświetlanie dzisiejszych zalogowanych wyników
+    // Pobieranie i wyświetlanie zalogowanych wyników z podziałem na dni
     async function fetchDailyLogs() {
-        const today = new Date().toISOString().split('T')[0];
-        
         const { data, error } = await db
             .from('daily_logs')
-            .select(`id, hours_spent, pieces_made, processes(name, norm_per_hour)`)
-            .gte('created_at', today);
+            .select(`id, log_date, hours_spent, pieces_made, processes(name, norm_per_hour)`)
+            .order('log_date', { ascending: false })
+            .order('id', { ascending: false });
 
         if (error) return console.error(error);
 
-        const container = document.getElementById('logs-container');
+        const wrapper = document.getElementById('logs-wrapper');
         if (data.length === 0) {
-            container.innerHTML = '<p style="padding: 20px; text-align: center; color: #8b949e;">Brak wpisów z dziś.</p>';
+            wrapper.innerHTML = '<p style="text-align: center; color: #8b949e;">Brak wpisów w bazie.</p>';
             return;
         }
 
-        container.innerHTML = data.map(log => {
-            const norm = log.processes.norm_per_hour;
-            const expected = log.hours_spent * norm;
-            const efficiency = Math.round((log.pieces_made / expected) * 100);
+        // Grupowanie danych po dacie
+        const groupedLogs = data.reduce((acc, log) => {
+            const date = log.log_date;
+            if (!acc[date]) acc[date] = [];
+            acc[date].push(log);
+            return acc;
+        }, {});
 
-            let statusClass = 'good';
-            if (efficiency < 100) statusClass = 'warn';
-            if (efficiency < 90) statusClass = 'bad';
+        // Budowanie interfejsu
+        let html = '';
+        for (const [date, logs] of Object.entries(groupedLogs)) {
+            const dateObj = new Date(date);
+            const formattedDate = dateObj.toLocaleDateString('pl-PL');
 
-            return `
-                <div class="log-item">
-                    <div>
-                        <strong style="color: #f0f6fc;">${log.processes.name}</strong><br>
-                        <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt.</small>
+            html += `<h3>Zapisy z dnia: ${formattedDate}</h3>`;
+            html += `<div class="card" style="padding: 0;">`;
+            
+            logs.forEach(log => {
+                const norm = log.processes.norm_per_hour;
+                const expected = log.hours_spent * norm;
+                const efficiency = Math.round((log.pieces_made / expected) * 100);
+
+                let statusClass = 'good';
+                if (efficiency < 100) statusClass = 'warn';
+                if (efficiency < 90) statusClass = 'bad';
+
+                html += `
+                    <div class="log-item">
+                        <div style="flex-grow: 1;">
+                            <strong style="color: #f0f6fc;">${log.processes.name}</strong><br>
+                            <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt.</small>
+                        </div>
+                        <div class="efficiency-badge ${statusClass}">${efficiency}%</div>
+                        <button class="delete-btn" onclick="deleteLog(${log.id})">X</button>
                     </div>
-                    <div class="efficiency-badge ${statusClass}">${efficiency}%</div>
-                </div>
-            `;
-        }).join('');
+                `;
+            });
+            html += `</div>`;
+        }
+
+        wrapper.innerHTML = html;
     }
 
-    // 3. Obsługa wysyłania formularza
+    // Funkcja usuwania wpisów
+    window.deleteLog = async function(id) {
+        if(confirm("Czy na pewno chcesz usunąć ten wpis?")) {
+            const { error } = await db.from('daily_logs').delete().eq('id', id);
+            if (error) {
+                alert("Błąd podczas usuwania wpisu.");
+                console.error(error);
+            } else {
+                fetchDailyLogs();
+            }
+        }
+    };
+
+    // Obsługa wysyłania formularza
     document.getElementById('tracker-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
+        const dateVal = document.getElementById('date-input').value;
         const processId = document.getElementById('process-select').value;
         const hours = document.getElementById('hours-input').value;
         const pieces = document.getElementById('pieces-input').value;
 
         const { error } = await db.from('daily_logs').insert([
-            { process_id: parseInt(processId), hours_spent: parseFloat(hours), pieces_made: parseInt(pieces) }
+            { 
+                log_date: dateVal, 
+                process_id: parseInt(processId), 
+                hours_spent: parseFloat(hours), 
+                pieces_made: parseInt(pieces) 
+            }
         ]);
 
         if (error) {
@@ -115,6 +158,7 @@
         }
     });
 
+    // Inicjalizacja aplikacji
     fetchProcesses();
     fetchDailyLogs();
 </script>
