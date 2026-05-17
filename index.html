@@ -40,7 +40,8 @@
         </div>
 
     <h3 style="margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px;">Zarządzanie Zadaniami</h3>
-    <div class="card" style="border-color: var(--accent-orange);">
+    
+    <div class="card" style="border-color: var(--accent-orange); margin-bottom: 15px;">
         <form id="new-task-form">
             <div class="form-group">
                 <label for="task-name">Nazwa zadania</label>
@@ -60,6 +61,10 @@
             <button type="submit" style="background-color: var(--accent-orange); color: #000;">Dodaj nowe zadanie do bazy</button>
         </form>
     </div>
+
+    <h4 style="color: #8b949e; margin-bottom: 10px;">Aktualna lista zadań w słowniku:</h4>
+    <div class="card" id="tasks-manage-list" style="padding: 0; max-height: 250px; overflow-y: auto;">
+        </div>
 </div>
 
 <script>
@@ -69,31 +74,70 @@
 
     document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
 
-    // Zmodyfikowana funkcja pobierania zadań (dzieli na Procesy i Przeróbki)
+    // Pobieranie zadań i jednoczesne odświeżanie dropdowna oraz listy zarządzania
     async function fetchProcesses() {
         const { data, error } = await db.from('processes').select('*').order('name');
         if (error) return console.error(error);
         
+        // 1. Aktualizacja głównego dropdowna do zapisywania wyników
         const procesy = data.filter(p => p.type === 'Proces' || !p.type);
         const przerobki = data.filter(p => p.type === 'Przeróbka');
 
-        let html = '<option value="">Wybierz zadanie...</option>';
+        let selectHtml = '<option value="">Wybierz zadanie...</option>';
         
         if (procesy.length > 0) {
-            html += '<optgroup label="Procesy">';
-            procesy.forEach(p => html += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
-            html += '</optgroup>';
+            selectHtml += '<optgroup label="Procesy">';
+            procesy.forEach(p => selectHtml += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
+            selectHtml += '</optgroup>';
         }
 
         if (przerobki.length > 0) {
-            html += '<optgroup label="Przeróbki">';
-            przerobki.forEach(p => html += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
-            html += '</optgroup>';
+            selectHtml += '<optgroup label="Przeróbki">';
+            przerobki.forEach(p => selectHtml += `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`);
+            selectHtml += '</optgroup>';
         }
 
-        document.getElementById('process-select').innerHTML = html;
+        document.getElementById('process-select').innerHTML = selectHtml;
+
+        // 2. Aktualizacja listy pod formularzem (słownika zadań z opcją usuwania)
+        const manageList = document.getElementById('tasks-manage-list');
+        if (data.length === 0) {
+            manageList.innerHTML = '<p style="color: #8b949e; padding: 15px; text-align: center;">Brak zdefiniowanych zadań.</p>';
+            return;
+        }
+
+        manageList.innerHTML = data.map(p => `
+            <div class="log-item" style="padding: 10px 15px;">
+                <div style="flex-grow: 1;">
+                    <strong style="color: #f0f6fc;">${p.name}</strong> 
+                    <span style="font-size: 10px; color: var(--accent-orange); text-transform: uppercase;">[${p.type || 'Proces'}]</span>
+                    <br><small style="color: #8b949e;">Norma: ${p.norm_per_hour}/h</small>
+                </div>
+                <button class="delete-btn" onclick="deleteProcess(${p.id}, '${p.name}')" style="padding: 4px 8px; font-size: 11px;">Usuń</button>
+            </div>
+        `).join('');
     }
 
+    // Funkcja usuwania samego zadania ze słownika (z obsługą klucza obcego)
+    window.deleteProcess = async function(id, name) {
+        if (confirm(`Czy na pewno chcesz bezpowrotnie usunąć zadanie "${name}" ze słownika bazowego?`)) {
+            const { error } = await db.from('processes').delete().eq('id', id);
+            
+            if (error) {
+                // Kod błędu 23503 w PostgreSQL oznacza naruszenie więzów integralności (klucz obcy jest używany)
+                if (error.code === "23503") {
+                    alert(`Nie możesz usunąć zadania "${name}", ponieważ masz już zapisane codzienne wyniki z nim powiązane. Najpierw usuń wpisy z historii zmian.`);
+                } else {
+                    alert("Błąd podczas usuwania zadania.");
+                    console.error(error);
+                }
+            } else {
+                fetchProcesses(); // Odśwież widoki
+            }
+        }
+    };
+
+    // Pobieranie i wyświetlanie zalogowanych wyników dnia
     async function fetchDailyLogs() {
         const { data, error } = await db
             .from('daily_logs')
@@ -105,7 +149,7 @@
 
         const wrapper = document.getElementById('logs-wrapper');
         if (data.length === 0) {
-            wrapper.innerHTML = '<p style="text-align: center; color: #8b949e;">Brak wpisów w bazie.</p>';
+            wrapper.innerHTML = '<p style="text-align: center; color: #8b949e; padding: 20px;">Brak wpisów w bazie.</p>';
             return;
         }
 
@@ -125,10 +169,12 @@
             html += `<div class="card" style="padding: 0;">`;
             
             logs.forEach(log => {
-                const norm = log.processes.norm_per_hour;
+                // Zabezpieczenie na wypadek braku powiązanego procesu (fallback)
+                const processData = log.processes || { name: 'Usunięte zadanie', norm_per_hour: 1, type: 'Brak' };
+                const norm = processData.norm_per_hour;
                 const expected = log.hours_spent * norm;
                 const efficiency = Math.round((log.pieces_made / expected) * 100);
-                const taskType = log.processes.type || 'Proces';
+                const taskType = processData.type || 'Proces';
 
                 let statusClass = 'good';
                 if (efficiency < 100) statusClass = 'warn';
@@ -137,7 +183,7 @@
                 html += `
                     <div class="log-item">
                         <div style="flex-grow: 1;">
-                            <strong style="color: #f0f6fc;">${log.processes.name} <span style="font-size: 10px; color: var(--accent-orange); text-transform: uppercase;">[${taskType}]</span></strong><br>
+                            <strong style="color: #f0f6fc;">${processData.name} <span style="font-size: 10px; color: var(--accent-orange); text-transform: uppercase;">[${taskType}]</span></strong><br>
                             <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt.</small>
                         </div>
                         <div class="efficiency-badge ${statusClass}">${efficiency}%</div>
@@ -151,8 +197,9 @@
         wrapper.innerHTML = html;
     }
 
+    // Usuwanie wpisu dziennego
     window.deleteLog = async function(id) {
-        if(confirm("Czy na pewno chcesz usunąć ten wpis?")) {
+        if(confirm("Czy na pewno chcesz usunąć ten wpis z historii zmian?")) {
             const { error } = await db.from('daily_logs').delete().eq('id', id);
             if (error) {
                 alert("Błąd podczas usuwania wpisu.");
@@ -163,6 +210,7 @@
         }
     };
 
+    // Obsługa dodawania wyniku
     document.getElementById('tracker-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -190,7 +238,7 @@
         }
     });
 
-    // OBSŁUGA NOWEGO FORMULARZA: Dodawanie zadania do bazy
+    // Obsługa dodawania nowego typu zadania
     document.getElementById('new-task-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
@@ -207,18 +255,16 @@
         ]);
 
         if (error) {
-            alert('Błąd podczas dodawania zadania. Upewnij się, że masz uprawnienia (RLS).');
+            alert('Błąd podczas dodawania zadania do bazy.');
             console.error(error);
         } else {
-            alert('Dodano nowe zadanie do słownika!');
-            // Czyszczenie formularza zadań
             document.getElementById('task-name').value = '';
             document.getElementById('task-norm').value = '';
-            // Odświeżenie listy rozwijanej w głównym formularzu
             fetchProcesses();
         }
     });
 
+    // Start aplikacji
     fetchProcesses();
     fetchDailyLogs();
 </script>
