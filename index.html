@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Tracker</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="container">
+    <h2>Production Tracker</h2>
+
+    <div class="card">
+        <form id="tracker-form">
+            <div class="form-group">
+                <label for="process-select">Proces / Obróbka</label>
+                <select id="process-select" required>
+                    <option value="">Wczytywanie procesów...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="hours-input">Czas pracy (godziny)</label>
+                <input type="number" id="hours-input" step="0.1" placeholder="np. 1" required>
+            </div>
+            <div class="form-group">
+                <label for="pieces-input">Wykonane sztuki</label>
+                <input type="number" id="pieces-input" placeholder="np. 550" required>
+            </div>
+            <button type="submit">Zapisz wynik</button>
+        </form>
+    </div>
+
+    <h3>Dzisiejsze wpisy</h3>
+    <div class="card" id="logs-container" style="padding: 0;">
+        </div>
+</div>
+
+<script>
+    // Konfiguracja połączenia z Supabase
+    const SUPABASE_URL = "https://ekckurobugcufslazrqa.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrY2t1cm9idWdjdWZzbGF6cnFhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTAzNjE0OSwiZXhwIjoyMDk0NjEyMTQ5fQ.qDoqVTicQLWpE8f1cAFpWCveXg37Q-5FZBkvnsKPfm0";
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let localProcesses = [];
+
+    // 1. Pobieranie procesów (słownika norm) do dropdowna
+    async function fetchProcesses() {
+        const { data, error } = await supabase.from('processes').select('*');
+        if (error) return console.error(error);
+        
+        localProcesses = data;
+        const select = document.getElementById('process-select');
+        select.innerHTML = data.map(p => `<option value="${p.id}">${p.name} (Norma: ${p.norm_per_hour}/h)</option>`).join('');
+    }
+
+    // 2. Pobieranie i wyświetlanie dzisiejszych zalogowanych wyników
+    async function fetchDailyLogs() {
+        const today = new Date().toISOString().split('T')[0];
+        
+        const { data, error } = await supabase
+            .from('daily_logs')
+            .select(`id, hours_spent, pieces_made, processes(name, norm_per_hour)`)
+            .gte('created_at', today);
+
+        if (error) return console.error(error);
+
+        const container = document.getElementById('logs-container');
+        if (data.length === 0) {
+            container.innerHTML = '<p style="padding: 20px; text-align: center; color: #8b949e;">Brak wpisów z dziś.</p>';
+            return;
+        }
+
+        container.innerHTML = data.map(log => {
+            const norm = log.processes.norm_per_hour;
+            const expected = log.hours_spent * norm;
+            const efficiency = Math.round((log.pieces_made / expected) * 100);
+
+            let statusClass = 'good';
+            if (efficiency < 100) statusClass = 'warn';
+            if (efficiency < 90) statusClass = 'bad';
+
+            return `
+                <div class="log-item">
+                    <div>
+                        <strong style="color: #f0f6fc;">${log.processes.name}</strong><br>
+                        <small style="color: #8b949e;">${log.hours_spent}h | ${log.pieces_made} szt.</small>
+                    </div>
+                    <div class="efficiency-badge ${statusClass}">${efficiency}%</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 3. Obsługa wysyłania formularza
+    document.getElementById('tracker-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const processId = document.getElementById('process-select').value;
+        const hours = document.getElementById('hours-input').value;
+        const pieces = document.getElementById('pieces-input').value;
+
+        const { error } = await supabase.from('daily_logs').insert([
+            { process_id: parseInt(processId), hours_spent: parseFloat(hours), pieces_made: parseInt(pieces) }
+        ]);
+
+        if (error) {
+            alert('Błąd podczas zapisywania danych');
+            console.error(error);
+        } else {
+            document.getElementById('hours-input').value = '';
+            document.getElementById('pieces-input').value = '';
+            fetchDailyLogs();
+        }
+    });
+
+    fetchProcesses();
+    fetchDailyLogs();
+</script>
+</body>
+</html>
