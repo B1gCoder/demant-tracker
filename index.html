@@ -41,13 +41,13 @@
     // Konfiguracja połączenia z Supabase
     const SUPABASE_URL = "https://ekckurobugcufslazrqa.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrY2t1cm9idWdjdWZzbGF6cnFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzYxNDksImV4cCI6MjA5NDYxMjE0OX0.hyxbmSl5snpnHf0QDCdsKhi8ARfOgFBHpbYsENh93-4";
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     let localProcesses = [];
 
     // 1. Pobieranie procesów (słownika norm) do dropdowna
     async function fetchProcesses() {
-        const { data, error } = await supabase.from('processes').select('*');
+        const { data, error } = await db.from('processes').select('*');
         if (error) return console.error(error);
         
         localProcesses = data;
@@ -59,7 +59,7 @@
     async function fetchDailyLogs() {
         const today = new Date().toISOString().split('T')[0];
         
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('daily_logs')
             .select(`id, hours_spent, pieces_made, processes(name, norm_per_hour)`)
             .gte('created_at', today);
@@ -101,7 +101,7 @@
         const hours = document.getElementById('hours-input').value;
         const pieces = document.getElementById('pieces-input').value;
 
-        const { error } = await supabase.from('daily_logs').insert([
+        const { error } = await db.from('daily_logs').insert([
             { process_id: parseInt(processId), hours_spent: parseFloat(hours), pieces_made: parseInt(pieces) }
         ]);
 
