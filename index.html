@@ -26,7 +26,7 @@
                 </div>
                 <div style="width: 100px;">
                     <label style="color: #c9d1d9;">Cel (szt/h)</label>
-                    <input type="number" id="goal-norm-input" required style="border-color: #58a6ff;">
+                    <input type="number" id="goal-norm-input" step="0.1" required style="border-color: #58a6ff;">
                 </div>
                 <button type="submit" style="width: auto; background-color: #58a6ff; color: #000;">Ustaw Cel</button>
             </form>
@@ -76,7 +76,7 @@
             </div>
             <div class="form-group">
                 <label for="task-norm">Domyślna norma na godzinę</label>
-                <input type="number" id="task-norm" placeholder="np. 600" required>
+                <input type="number" id="task-norm" step="0.1" placeholder="np. 600" required>
             </div>
             <button type="submit" style="background-color: var(--accent-orange); color: #000;">Dodaj zadanie do bazy</button>
         </form>
@@ -169,7 +169,7 @@
         const processId = document.getElementById('goal-process-select').value;
         const goalNorm = document.getElementById('goal-norm-input').value;
 
-        const { error } = await db.from('processes').update({ goal_norm: parseInt(goalNorm) }).eq('id', processId);
+        const { error } = await db.from('processes').update({ goal_norm: parseFloat(goalNorm) }).eq('id', processId);
         if(!error) {
             document.getElementById('goal-norm-input').value = '';
             fetchProcesses();
@@ -313,7 +313,7 @@
             { 
                 name: nameVal, 
                 type: typeVal, 
-                norm_per_hour: parseInt(normVal) 
+                norm_per_hour: parseFloat(normVal) 
             }
         ]);
 
